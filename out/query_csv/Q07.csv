@@ -1,0 +1,5 @@
+﻿day_type,holiday_class,days,avg_daily_revenue,index_vs_weekday
+Weekend,Normal day,470,13566.0,133.0
+Holiday,Public holiday,60,11319.0,111.0
+Weekday,Normal day,1167,10181.0,100.0
+Holiday,Poya day,65,9921.0,97.0

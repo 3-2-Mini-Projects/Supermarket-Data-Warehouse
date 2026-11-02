@@ -1,0 +1,15 @@
+﻿channel_name,day_name,avg_daily_revenue,index_vs_weekly_avg
+In-store (POS),Monday,9215.0,89.0
+In-store (POS),Tuesday,9476.0,92.0
+In-store (POS),Wednesday,9105.0,88.0
+In-store (POS),Thursday,9316.0,90.0
+In-store (POS),Friday,9814.0,95.0
+In-store (POS),Saturday,13012.0,126.0
+In-store (POS),Sunday,12478.0,121.0
+Online order,Monday,685.0,89.0
+Online order,Tuesday,684.0,89.0
+Online order,Wednesday,982.0,128.0
+Online order,Thursday,692.0,90.0
+Online order,Friday,615.0,80.0
+Online order,Saturday,760.0,99.0
+Online order,Sunday,953.0,124.0

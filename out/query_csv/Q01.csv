@@ -1,0 +1,11 @@
+﻿channel_name,year_no,revenue,orders,yoy_pct
+In-store (POS),2022,3538643.0,1374,
+In-store (POS),2023,3665726.0,1360,3.6
+In-store (POS),2024,3861041.0,1410,5.3
+In-store (POS),2025,3986695.0,1455,3.3
+In-store (POS),2026,3177495.0,1165,-20.3
+Online order,2022,258765.0,107,
+Online order,2023,343917.0,100,32.9
+Online order,2024,245927.0,97,-28.5
+Online order,2025,297892.0,86,21.1
+Online order,2026,205498.0,93,-31.0

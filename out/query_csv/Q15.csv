@@ -1,0 +1,11 @@
+﻿promo_name,target_type,disc_pct,orders,units,discount_cost,profit_after_discount,profit_per_rs_discount,roi_rank
+Christmas Storewide 2024,STOREWIDE,5.0,83,346.0,10862.0,55400.0,5.1,1
+Christmas Storewide 2025,STOREWIDE,5.0,76,302.0,9731.0,48440.0,4.98,2
+Christmas Storewide 2023,STOREWIDE,5.0,104,462.0,14615.0,68930.0,4.72,3
+Christmas Storewide 2022,STOREWIDE,5.0,91,370.0,10864.0,47715.0,4.39,4
+Coconut Oil Deal 2023,PRODUCT,10.0,15,20.0,1910.0,5399.0,2.83,5
+Avurudu Rice Festival 2026,CATEGORY,10.0,26,62.0,5330.0,13630.0,2.56,6
+Avurudu Rice Festival 2024,CATEGORY,10.0,21,38.0,3498.0,8409.0,2.4,7
+Household Saver 2025,CATEGORY,10.0,29,62.0,3980.0,8974.0,2.25,8
+Avurudu Rice Festival 2025,CATEGORY,10.0,33,83.0,5855.0,13141.0,2.24,9
+Avurudu Rice Festival 2023,CATEGORY,10.0,10,20.0,1270.0,2778.0,2.19,10

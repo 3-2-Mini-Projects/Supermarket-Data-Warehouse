@@ -1,0 +1,2276 @@
+[
+ {
+  "n": 1,
+  "title": "Annual revenue by channel with year-over-year growth",
+  "question": "How fast is each sales channel growing year on year?",
+  "tech": "CTE, LAG(), window per channel",
+  "sql": "WITH yr AS (\n  SELECT d.year_no, c.channel_name,\n         SUM(f.net_amount) AS revenue, COUNT(DISTINCT f.source_order_no) AS orders\n  FROM fact_sales f\n  JOIN dim_date d    ON d.date_key    = f.date_key\n  JOIN dim_channel c ON c.channel_key = f.channel_key\n  GROUP BY d.year_no, c.channel_name)\nSELECT channel_name, year_no, ROUND(revenue) AS revenue, orders,\n       ROUND(100*(revenue - LAG(revenue) OVER w) / LAG(revenue) OVER w, 1) AS yoy_pct\nFROM yr\nWINDOW w AS (PARTITION BY channel_name ORDER BY year_no)\nORDER BY channel_name, year_no;",
+  "note": "2026 is year-to-date (trading data ends 28 Oct 2026), so its YoY is understated.",
+  "cols": [
+   "channel_name",
+   "year_no",
+   "revenue",
+   "orders",
+   "yoy_pct"
+  ],
+  "rows": [
+   [
+    "In-store (POS)",
+    2022,
+    3538643.0,
+    1374,
+    null
+   ],
+   [
+    "In-store (POS)",
+    2023,
+    3665726.0,
+    1360,
+    3.6
+   ],
+   [
+    "In-store (POS)",
+    2024,
+    3861041.0,
+    1410,
+    5.3
+   ],
+   [
+    "In-store (POS)",
+    2025,
+    3986695.0,
+    1455,
+    3.3
+   ],
+   [
+    "In-store (POS)",
+    2026,
+    3177495.0,
+    1165,
+    -20.3
+   ],
+   [
+    "Online order",
+    2022,
+    258765.0,
+    107,
+    null
+   ],
+   [
+    "Online order",
+    2023,
+    343917.0,
+    100,
+    32.9
+   ],
+   [
+    "Online order",
+    2024,
+    245927.0,
+    97,
+    -28.5
+   ],
+   [
+    "Online order",
+    2025,
+    297892.0,
+    86,
+    21.1
+   ],
+   [
+    "Online order",
+    2026,
+    205498.0,
+    93,
+    -31.0
+   ]
+  ]
+ },
+ {
+  "n": 2,
+  "title": "Monthly revenue with 3-month moving average and year-to-date total",
+  "question": "What is the underlying monthly trend once seasonality noise is smoothed out?",
+  "tech": "CTE, moving-average window frame, running SUM per year",
+  "sql": "WITH m AS (\n  SELECT d.year_no, d.month_no, d.yearmonth, SUM(f.net_amount) AS rev\n  FROM fact_sales f JOIN dim_date d ON d.date_key = f.date_key\n  GROUP BY d.year_no, d.month_no, d.yearmonth)\nSELECT yearmonth, ROUND(rev) AS revenue,\n       ROUND(AVG(rev) OVER (ORDER BY yearmonth ROWS BETWEEN 2 PRECEDING AND CURRENT ROW)) AS moving_avg_3m,\n       ROUND(SUM(rev) OVER (PARTITION BY year_no ORDER BY month_no)) AS ytd_revenue\nFROM m\nORDER BY yearmonth DESC\nLIMIT 12;",
+  "note": "Latest 12 months shown.",
+  "cols": [
+   "yearmonth",
+   "revenue",
+   "moving_avg_3m",
+   "ytd_revenue"
+  ],
+  "rows": [
+   [
+    "2026-10",
+    320718.0,
+    322111.0,
+    3382993.0
+   ],
+   [
+    "2026-09",
+    285291.0,
+    333339.0,
+    3062274.0
+   ],
+   [
+    "2026-08",
+    360325.0,
+    361084.0,
+    2776984.0
+   ],
+   [
+    "2026-07",
+    354400.0,
+    324426.0,
+    2416659.0
+   ],
+   [
+    "2026-06",
+    368526.0,
+    362463.0,
+    2062259.0
+   ],
+   [
+    "2026-05",
+    250352.0,
+    350771.0,
+    1693733.0
+   ],
+   [
+    "2026-04",
+    468512.0,
+    363272.0,
+    1443381.0
+   ],
+   [
+    "2026-03",
+    333449.0,
+    324957.0,
+    974870.0
+   ],
+   [
+    "2026-02",
+    287856.0,
+    342618.0,
+    641421.0
+   ],
+   [
+    "2026-01",
+    353565.0,
+    358668.0,
+    353565.0
+   ],
+   [
+    "2025-12",
+    386433.0,
+    363631.0,
+    4284587.0
+   ],
+   [
+    "2025-11",
+    336005.0,
+    367364.0,
+    3898154.0
+   ]
+  ]
+ },
+ {
+  "n": 3,
+  "title": "Branch ranking per year with market share and rank movement",
+  "question": "Which branches are rising or falling in the league table?",
+  "tech": "Two CTEs, RANK(), SUM() OVER share, LAG() on a ranking",
+  "sql": "WITH b AS (\n  SELECT d.year_no, br.branch_name, br.region, SUM(f.net_amount) AS rev\n  FROM fact_sales f\n  JOIN dim_date d    ON d.date_key   = f.date_key\n  JOIN dim_branch br ON br.branch_key = f.branch_key\n  GROUP BY d.year_no, br.branch_name, br.region),\nr AS (\n  SELECT *, RANK() OVER (PARTITION BY year_no ORDER BY rev DESC) AS rnk,\n         100*rev / SUM(rev) OVER (PARTITION BY year_no) AS share_pct\n  FROM b)\nSELECT year_no, branch_name, region, ROUND(rev) AS revenue, rnk AS rank_now,\n       CAST(LAG(rnk) OVER (PARTITION BY branch_name ORDER BY year_no) AS SIGNED) - CAST(rnk AS SIGNED) AS places_gained,\n       ROUND(share_pct,1) AS share_pct\nFROM r\nORDER BY year_no DESC, rnk\nLIMIT 8;",
+  "note": "Latest year (2026, YTD) shown; places_gained compares with the previous year.",
+  "cols": [
+   "year_no",
+   "branch_name",
+   "region",
+   "revenue",
+   "rank_now",
+   "places_gained",
+   "share_pct"
+  ],
+  "rows": [
+   [
+    2026,
+    "FreshMart Colombo Fort",
+    "Western",
+    783835.0,
+    1,
+    0,
+    23.2
+   ],
+   [
+    2026,
+    "FreshMart Nugegoda",
+    "Western",
+    495566.0,
+    2,
+    1,
+    14.6
+   ],
+   [
+    2026,
+    "FreshMart Kotte",
+    "Western",
+    484742.0,
+    3,
+    -1,
+    14.3
+   ],
+   [
+    2026,
+    "FreshMart Kandy",
+    "Central",
+    473105.0,
+    4,
+    0,
+    14.0
+   ],
+   [
+    2026,
+    "FreshMart Galle",
+    "Southern",
+    419738.0,
+    5,
+    0,
+    12.4
+   ],
+   [
+    2026,
+    "FreshMart Negombo",
+    "Western",
+    417242.0,
+    6,
+    0,
+    12.3
+   ],
+   [
+    2026,
+    "FreshMart Jaffna",
+    "Northern",
+    172585.0,
+    7,
+    1,
+    5.1
+   ],
+   [
+    2026,
+    "FreshMart Kurunegala",
+    "North Western",
+    136181.0,
+    8,
+    -1,
+    4.0
+   ]
+  ]
+ },
+ {
+  "n": 4,
+  "title": "Top 3 products in every parent category (in-store margin)",
+  "question": "Which products drive each category, and are they profitable?",
+  "tech": "ROW_NUMBER() PARTITION BY, SCD-2 roll-up by natural key",
+  "sql": "SELECT parent_category, product_name, revenue, margin_pct, rn AS rank_in_category\nFROM (\n  SELECT p.parent_category, p.product_id, p.product_name,\n         ROUND(SUM(f.net_amount)) AS revenue,\n         ROUND(100*SUM(f.gross_profit)/SUM(f.net_amount),1) AS margin_pct,\n         ROW_NUMBER() OVER (PARTITION BY p.parent_category ORDER BY SUM(f.net_amount) DESC) AS rn\n  FROM fact_sales f JOIN dim_product p ON p.product_key = f.product_key\n  WHERE f.channel_key = 1                      -- in-store only: online prices are unreliable (see DQ section)\n  GROUP BY p.parent_category, p.product_id, p.product_name) t\nWHERE rn <= 3\nORDER BY parent_category, rn;",
+  "note": "Grouped by product_id (not product_key) so all price versions of a product are combined.",
+  "cols": [
+   "parent_category",
+   "product_name",
+   "revenue",
+   "margin_pct",
+   "rank_in_category"
+  ],
+  "rows": [
+   [
+    "Beverages",
+    "Instant Coffee 100g",
+    1049431.0,
+    32.5,
+    1
+   ],
+   [
+    "Beverages",
+    "Orange Cordial 750ml",
+    820942.0,
+    28.7,
+    2
+   ],
+   [
+    "Beverages",
+    "Black Tea 400g",
+    807925.0,
+    33.7,
+    3
+   ],
+   [
+    "Dairy & Eggs",
+    "Butter 200g",
+    1173707.0,
+    27.7,
+    1
+   ],
+   [
+    "Dairy & Eggs",
+    "Cheese Slices 200g",
+    1167722.0,
+    21.8,
+    2
+   ],
+   [
+    "Dairy & Eggs",
+    "Eggs (10 pack)",
+    701642.0,
+    22.1,
+    3
+   ],
+   [
+    "Fresh Produce",
+    "Carrots 1kg",
+    316844.0,
+    24.4,
+    1
+   ],
+   [
+    "Fresh Produce",
+    "Mango 1kg",
+    263998.0,
+    23.0,
+    2
+   ],
+   [
+    "Fresh Produce",
+    "Bananas 1kg",
+    126144.0,
+    27.8,
+    3
+   ],
+   [
+    "Groceries",
+    "Coconut Oil 1L",
+    1178520.0,
+    40.1,
+    1
+   ],
+   [
+    "Groceries",
+    "Red Raw Rice 5kg",
+    1046977.0,
+    34.5,
+    2
+   ],
+   [
+    "Groceries",
+    "Samba Rice 5kg",
+    697784.0,
+    33.5,
+    3
+   ],
+   [
+    "Household",
+    "Laundry Detergent 1kg",
+    871678.0,
+    31.0,
+    1
+   ],
+   [
+    "Household",
+    "Dish Wash Liquid 500ml",
+    381090.0,
+    29.8,
+    2
+   ],
+   [
+    "Household",
+    "Floor Cleaner 1L",
+    288249.0,
+    23.1,
+    3
+   ],
+   [
+    "Personal Care",
+    "Hand Wash 250ml",
+    1496359.0,
+    24.3,
+    1
+   ],
+   [
+    "Personal Care",
+    "Shampoo 200ml",
+    1277052.0,
+    30.7,
+    2
+   ],
+   [
+    "Personal Care",
+    "Toothpaste 120g",
+    624429.0,
+    25.9,
+    3
+   ]
+  ]
+ },
+ {
+  "n": 5,
+  "title": "Pareto / ABC classification of products",
+  "question": "Which few products generate most of the revenue?",
+  "tech": "Cumulative SUM() window, CASE classification",
+  "sql": "WITH pr AS (\n  SELECT p.product_id, p.product_name, SUM(f.net_amount) AS rev\n  FROM fact_sales f JOIN dim_product p ON p.product_key = f.product_key\n  GROUP BY p.product_id, p.product_name),\ncum AS (\n  SELECT *, SUM(rev) OVER (ORDER BY rev DESC, product_id) AS cum_rev, SUM(rev) OVER () AS tot FROM pr)\nSELECT product_name, ROUND(rev) AS revenue, ROUND(100*rev/tot,1) AS share_pct,\n       ROUND(100*cum_rev/tot,1) AS cumulative_pct,\n       CASE WHEN cum_rev/tot <= 0.70 THEN 'A' WHEN cum_rev/tot <= 0.90 THEN 'B' ELSE 'C' END AS abc_class\nFROM cum\nORDER BY rev DESC\nLIMIT 12;",
+  "note": "Top 12 of 30 products shown.",
+  "cols": [
+   "product_name",
+   "revenue",
+   "share_pct",
+   "cumulative_pct",
+   "abc_class"
+  ],
+  "rows": [
+   [
+    "Hand Wash 250ml",
+    1527154.0,
+    7.8,
+    7.8,
+    "A"
+   ],
+   [
+    "Shampoo 200ml",
+    1330412.0,
+    6.8,
+    14.6,
+    "A"
+   ],
+   [
+    "Butter 200g",
+    1236034.0,
+    6.3,
+    20.9,
+    "A"
+   ],
+   [
+    "Coconut Oil 1L",
+    1215857.0,
+    6.2,
+    27.1,
+    "A"
+   ],
+   [
+    "Cheese Slices 200g",
+    1202879.0,
+    6.1,
+    33.3,
+    "A"
+   ],
+   [
+    "Instant Coffee 100g",
+    1096613.0,
+    5.6,
+    38.9,
+    "A"
+   ],
+   [
+    "Red Raw Rice 5kg",
+    1065739.0,
+    5.4,
+    44.3,
+    "A"
+   ],
+   [
+    "Laundry Detergent 1kg",
+    928039.0,
+    4.7,
+    49.0,
+    "A"
+   ],
+   [
+    "Orange Cordial 750ml",
+    869845.0,
+    4.4,
+    53.5,
+    "A"
+   ],
+   [
+    "Black Tea 400g",
+    867787.0,
+    4.4,
+    57.9,
+    "A"
+   ],
+   [
+    "Eggs (10 pack)",
+    766405.0,
+    3.9,
+    61.8,
+    "A"
+   ],
+   [
+    "Samba Rice 5kg",
+    729598.0,
+    3.7,
+    65.6,
+    "A"
+   ]
+  ]
+ },
+ {
+  "n": 6,
+  "title": "Category x quarter revenue matrix with grand-total row (2025)",
+  "question": "How is revenue split across categories and quarters in the latest full year?",
+  "tech": "GROUP BY ... WITH ROLLUP, GROUPING(), conditional pivot",
+  "sql": "SELECT IF(GROUPING(p.parent_category), '** ALL CATEGORIES **', p.parent_category) AS category,\n       ROUND(SUM(CASE WHEN d.quarter_no = 1 THEN f.net_amount END)) AS q1,\n       ROUND(SUM(CASE WHEN d.quarter_no = 2 THEN f.net_amount END)) AS q2,\n       ROUND(SUM(CASE WHEN d.quarter_no = 3 THEN f.net_amount END)) AS q3,\n       ROUND(SUM(CASE WHEN d.quarter_no = 4 THEN f.net_amount END)) AS q4,\n       ROUND(SUM(f.net_amount)) AS year_total\nFROM fact_sales f\nJOIN dim_date d    ON d.date_key    = f.date_key\nJOIN dim_product p ON p.product_key = f.product_key\nWHERE d.year_no = 2025\nGROUP BY p.parent_category WITH ROLLUP;",
+  "note": "",
+  "cols": [
+   "category",
+   "q1",
+   "q2",
+   "q3",
+   "q4",
+   "year_total"
+  ],
+  "rows": [
+   [
+    "Beverages",
+    174631.0,
+    223150.0,
+    206566.0,
+    237204.0,
+    841552.0
+   ],
+   [
+    "Dairy & Eggs",
+    213222.0,
+    188021.0,
+    196060.0,
+    213305.0,
+    810607.0
+   ],
+   [
+    "Fresh Produce",
+    36452.0,
+    56981.0,
+    73910.0,
+    48322.0,
+    215664.0
+   ],
+   [
+    "Groceries",
+    273399.0,
+    295095.0,
+    329369.0,
+    296721.0,
+    1194585.0
+   ],
+   [
+    "Household",
+    65465.0,
+    95204.0,
+    98919.0,
+    89205.0,
+    348793.0
+   ],
+   [
+    "Personal Care",
+    218836.0,
+    215760.0,
+    232657.0,
+    206136.0,
+    873388.0
+   ],
+   [
+    "** ALL CATEGORIES **",
+    982004.0,
+    1074211.0,
+    1137481.0,
+    1090892.0,
+    4284587.0
+   ]
+  ]
+ },
+ {
+  "n": 7,
+  "title": "Revenue per day by day type: weekday, weekend, public holiday, Poya day",
+  "question": "Do customers shop more or less on holidays, Poya days and weekends?",
+  "tech": "Calendar spine (LEFT JOIN from dim_date so zero-sales days count), Holiday-API attributes",
+  "sql": "WITH daily AS (\n  SELECT d.date_key, d.day_type, d.holiday_class, COALESCE(SUM(f.net_amount),0) AS rev\n  FROM dim_date d LEFT JOIN fact_sales f ON f.date_key = d.date_key\n  WHERE d.full_date BETWEEN '2022-01-01' AND '2026-10-28'\n  GROUP BY d.date_key, d.day_type, d.holiday_class)\nSELECT day_type, holiday_class, COUNT(*) AS days, ROUND(AVG(rev)) AS avg_daily_revenue,\n       ROUND(100*AVG(rev) / (SELECT AVG(rev) FROM daily WHERE day_type = 'Weekday')) AS index_vs_weekday\nFROM daily\nGROUP BY day_type, holiday_class\nORDER BY avg_daily_revenue DESC;",
+  "note": "Index 100 = an ordinary weekday.",
+  "cols": [
+   "day_type",
+   "holiday_class",
+   "days",
+   "avg_daily_revenue",
+   "index_vs_weekday"
+  ],
+  "rows": [
+   [
+    "Weekend",
+    "Normal day",
+    470,
+    13566.0,
+    133.0
+   ],
+   [
+    "Holiday",
+    "Public holiday",
+    60,
+    11319.0,
+    111.0
+   ],
+   [
+    "Weekday",
+    "Normal day",
+    1167,
+    10181.0,
+    100.0
+   ],
+   [
+    "Holiday",
+    "Poya day",
+    65,
+    9921.0,
+    97.0
+   ]
+  ]
+ },
+ {
+  "n": 8,
+  "title": "Holiday sales uplift versus the preceding 7-day baseline",
+  "question": "Which holidays produce the biggest sales spike (or dip) compared with normal trading?",
+  "tech": "Window frame ROWS 7 PRECEDING AND 1 PRECEDING, ranking",
+  "sql": "WITH daily AS (\n  SELECT d.full_date, d.holiday_name, d.is_holiday, COALESCE(SUM(f.net_amount),0) AS rev\n  FROM dim_date d LEFT JOIN fact_sales f ON f.date_key = d.date_key\n  WHERE d.full_date BETWEEN '2022-01-01' AND '2026-10-28'\n  GROUP BY d.full_date, d.holiday_name, d.is_holiday),\nbase AS (\n  SELECT *, AVG(rev) OVER (ORDER BY full_date ROWS BETWEEN 7 PRECEDING AND 1 PRECEDING) AS baseline FROM daily)\nSELECT full_date, holiday_name, ROUND(rev) AS revenue, ROUND(baseline) AS baseline_7d,\n       ROUND(100*(rev/baseline - 1),1) AS uplift_pct\nFROM base\nWHERE is_holiday = 1 AND baseline > 0 AND full_date >= '2025-01-01'\nORDER BY uplift_pct DESC\nLIMIT 10;",
+  "note": "Holidays since 2025 only; top 10 by uplift.",
+  "cols": [
+   "full_date",
+   "holiday_name",
+   "revenue",
+   "baseline_7d",
+   "uplift_pct"
+  ],
+  "rows": [
+   [
+    "2026-05-31",
+    "Day after Vesak Full Moon Poya Day",
+    26501.0,
+    5536.0,
+    378.7
+   ],
+   [
+    "2025-06-07",
+    "Eid al-Adha",
+    24784.0,
+    7634.0,
+    224.6
+   ],
+   [
+    "2026-04-03",
+    "Good Friday",
+    23666.0,
+    8574.0,
+    176.0
+   ],
+   [
+    "2025-12-04",
+    "Unduvap Full Moon Poya Day",
+    25335.0,
+    9635.0,
+    163.0
+   ],
+   [
+    "2026-03-21",
+    "Eid al-Fitr (Provisional)",
+    20290.0,
+    8487.0,
+    139.1
+   ],
+   [
+    "2026-05-28",
+    "Eid al-Adha (Provisional)",
+    10210.0,
+    4325.0,
+    136.1
+   ],
+   [
+    "2025-07-10",
+    "Esala Full Moon Poya Day",
+    20640.0,
+    11811.0,
+    74.7
+   ],
+   [
+    "2025-03-31",
+    "Eid al-Fitr",
+    15880.0,
+    9149.0,
+    73.6
+   ],
+   [
+    "2026-08-27",
+    "Nikini Full Moon Poya Day",
+    20130.0,
+    11772.0,
+    71.0
+   ],
+   [
+    "2025-04-14",
+    "Sinhala and Tamil New Year's Day",
+    30815.0,
+    19714.0,
+    56.3
+   ]
+  ]
+ },
+ {
+  "n": 9,
+  "title": "RFM customer segmentation",
+  "question": "Who are our best, loyal and at-risk loyalty-card customers?",
+  "tech": "NTILE() scoring, CASE segmentation, aggregation of a derived table",
+  "sql": "WITH cust AS (\n  SELECT c.customer_id, MAX(d.full_date) AS last_buy,\n         COUNT(DISTINCT f.source_order_no) AS frequency, SUM(f.net_amount) AS monetary\n  FROM fact_sales f\n  JOIN dim_customer c ON c.customer_key = f.customer_key AND c.customer_id IS NOT NULL\n  JOIN dim_date d     ON d.date_key     = f.date_key\n  WHERE d.full_date <= '2026-10-28'\n  GROUP BY c.customer_id),\nscored AS (\n  SELECT *, DATEDIFF('2026-10-28', last_buy) AS recency_days,\n         NTILE(4) OVER (ORDER BY DATEDIFF('2026-10-28', last_buy) DESC) AS r,\n         NTILE(4) OVER (ORDER BY frequency) AS f,\n         NTILE(4) OVER (ORDER BY monetary)  AS m\n  FROM cust),\nseg AS (\n  SELECT *, CASE WHEN r>=3 AND f>=3 AND m>=3 THEN '1-Champions'\n                 WHEN r>=3 AND f>=2             THEN '2-Loyal / active'\n                 WHEN r<=2 AND m>=3             THEN '3-Big spenders at risk'\n                 ELSE                                '4-Hibernating' END AS segment\n  FROM scored)\nSELECT segment, COUNT(*) AS customers, ROUND(SUM(monetary)) AS revenue,\n       ROUND(100*SUM(monetary)/SUM(SUM(monetary)) OVER (),1) AS revenue_share_pct,\n       ROUND(AVG(frequency),1) AS avg_orders, ROUND(AVG(recency_days)) AS avg_days_since_last_buy\nFROM seg GROUP BY segment ORDER BY segment;",
+  "note": "Only identified loyalty-card customers (walk-ins excluded). Reference date = last trading day.",
+  "cols": [
+   "segment",
+   "customers",
+   "revenue",
+   "revenue_share_pct",
+   "avg_orders",
+   "avg_days_since_last_buy"
+  ],
+  "rows": [
+   [
+    "1-Champions",
+    48,
+    6346018.0,
+    55.9,
+    49.1,
+    19.0
+   ],
+   [
+    "2-Loyal / active",
+    23,
+    698694.0,
+    6.2,
+    11.8,
+    25.0
+   ],
+   [
+    "3-Big spenders at risk",
+    28,
+    3192939.0,
+    28.1,
+    40.9,
+    147.0
+   ],
+   [
+    "4-Hibernating",
+    61,
+    1117261.0,
+    9.8,
+    6.6,
+    238.0
+   ]
+  ]
+ },
+ {
+  "n": 10,
+  "title": "Loyalty tier at time of purchase versus current tier (SCD Type 2 in action)",
+  "question": "How much revenue was earned from customers who have since been upgraded?",
+  "tech": "Self-join of an SCD-2 dimension (historical vs current row)",
+  "sql": "SELECT h.loyalty_tier AS tier_at_purchase, cur.loyalty_tier AS tier_today,\n       COUNT(DISTINCT h.customer_id) AS customers,\n       ROUND(SUM(f.net_amount)) AS revenue,\n       ROUND(100*SUM(f.net_amount)/SUM(SUM(f.net_amount)) OVER (),1) AS pct_of_loyalty_revenue\nFROM fact_sales f\nJOIN dim_customer h   ON h.customer_key = f.customer_key AND h.customer_id IS NOT NULL\nJOIN dim_customer cur ON cur.customer_id = h.customer_id AND cur.is_current = 1\nGROUP BY h.loyalty_tier, cur.loyalty_tier\nORDER BY FIELD(h.loyalty_tier,'BRONZE','SILVER','GOLD','PLATINUM'), FIELD(cur.loyalty_tier,'BRONZE','SILVER','GOLD','PLATINUM');",
+  "note": "Rows where the two tiers differ are customers who migrated; a Type-1 dimension could not show this.",
+  "cols": [
+   "tier_at_purchase",
+   "tier_today",
+   "customers",
+   "revenue",
+   "pct_of_loyalty_revenue"
+  ],
+  "rows": [
+   [
+    "BRONZE",
+    "BRONZE",
+    108,
+    6748942.0,
+    59.4
+   ],
+   [
+    "BRONZE",
+    "SILVER",
+    21,
+    607345.0,
+    5.3
+   ],
+   [
+    "BRONZE",
+    "GOLD",
+    19,
+    484484.0,
+    4.3
+   ],
+   [
+    "BRONZE",
+    "PLATINUM",
+    11,
+    513971.0,
+    4.5
+   ],
+   [
+    "SILVER",
+    "SILVER",
+    21,
+    937904.0,
+    8.3
+   ],
+   [
+    "SILVER",
+    "GOLD",
+    19,
+    441149.0,
+    3.9
+   ],
+   [
+    "SILVER",
+    "PLATINUM",
+    11,
+    410500.0,
+    3.6
+   ],
+   [
+    "GOLD",
+    "GOLD",
+    19,
+    380849.0,
+    3.4
+   ],
+   [
+    "GOLD",
+    "PLATINUM",
+    11,
+    350454.0,
+    3.1
+   ],
+   [
+    "PLATINUM",
+    "PLATINUM",
+    10,
+    479314.0,
+    4.2
+   ]
+  ]
+ },
+ {
+  "n": 11,
+  "title": "Quarterly cohort retention",
+  "question": "Of the customers who first bought in a given quarter, what share is still buying 1, 2 and 4 quarters later?",
+  "tech": "Multiple CTEs, cohort indexing, conditional aggregation",
+  "sql": "WITH tx AS (\n  SELECT c.customer_id, d.year_no*4 + d.quarter_no - 1 AS qn\n  FROM fact_sales f\n  JOIN dim_customer c ON c.customer_key = f.customer_key AND c.customer_id IS NOT NULL\n  JOIN dim_date d     ON d.date_key     = f.date_key\n  GROUP BY c.customer_id, d.year_no*4 + d.quarter_no - 1),\nfirst_q AS (SELECT customer_id, MIN(qn) AS fq FROM tx GROUP BY customer_id),\nact AS (\n  SELECT fq.fq, tx.qn - fq.fq AS q_offset, COUNT(DISTINCT tx.customer_id) AS n\n  FROM tx JOIN first_q fq ON fq.customer_id = tx.customer_id\n  GROUP BY fq.fq, tx.qn - fq.fq)\nSELECT CONCAT(FLOOR(fq/4), '-Q', fq%4 + 1) AS cohort,\n       MAX(CASE WHEN q_offset = 0 THEN n END) AS cohort_size,\n       ROUND(100*MAX(CASE WHEN q_offset = 1 THEN n END) / MAX(CASE WHEN q_offset = 0 THEN n END),1) AS retained_q1_pct,\n       ROUND(100*MAX(CASE WHEN q_offset = 2 THEN n END) / MAX(CASE WHEN q_offset = 0 THEN n END),1) AS retained_q2_pct,\n       ROUND(100*MAX(CASE WHEN q_offset = 4 THEN n END) / MAX(CASE WHEN q_offset = 0 THEN n END),1) AS retained_q4_pct\nFROM act GROUP BY fq ORDER BY fq LIMIT 12;",
+  "note": "First 12 cohorts shown. The 2022-Q1 cohort contains all customers already active at the start of the data.",
+  "cols": [
+   "cohort",
+   "cohort_size",
+   "retained_q1_pct",
+   "retained_q2_pct",
+   "retained_q4_pct"
+  ],
+  "rows": [
+   [
+    "2022-Q1",
+    35,
+    65.7,
+    65.7,
+    65.7
+   ],
+   [
+    "2022-Q2",
+    32,
+    37.5,
+    31.3,
+    46.9
+   ],
+   [
+    "2022-Q3",
+    15,
+    33.3,
+    40.0,
+    33.3
+   ],
+   [
+    "2022-Q4",
+    21,
+    33.3,
+    33.3,
+    33.3
+   ],
+   [
+    "2023-Q1",
+    12,
+    33.3,
+    25.0,
+    16.7
+   ],
+   [
+    "2023-Q2",
+    7,
+    42.9,
+    71.4,
+    57.1
+   ],
+   [
+    "2023-Q3",
+    6,
+    33.3,
+    33.3,
+    50.0
+   ],
+   [
+    "2023-Q4",
+    13,
+    15.4,
+    23.1,
+    46.2
+   ],
+   [
+    "2024-Q1",
+    3,
+    100.0,
+    66.7,
+    66.7
+   ],
+   [
+    "2024-Q2",
+    6,
+    33.3,
+    66.7,
+    50.0
+   ],
+   [
+    "2024-Q3",
+    4,
+    75.0,
+    100.0,
+    75.0
+   ],
+   [
+    "2024-Q4",
+    3,
+    33.3,
+    66.7,
+    66.7
+   ]
+  ]
+ },
+ {
+  "n": 12,
+  "title": "Channel comparison: order value, basket size and discount intensity",
+  "question": "How do online orders differ from in-store baskets?",
+  "tech": "Two-level aggregation (line -> order -> channel)",
+  "sql": "WITH o AS (\n  SELECT f.channel_key, f.source_order_no, COUNT(*) AS line_cnt, SUM(f.quantity) AS units,\n         SUM(f.net_amount) AS rev, SUM(f.discount_amount) AS disc, SUM(f.gross_amount) AS gross\n  FROM fact_sales f GROUP BY f.channel_key, f.source_order_no)\nSELECT c.channel_name, COUNT(*) AS orders, ROUND(AVG(rev)) AS avg_order_value, ROUND(MAX(rev)) AS largest_order,\n       ROUND(AVG(line_cnt),2) AS lines_per_order, ROUND(AVG(units),2) AS units_per_order,\n       ROUND(100*SUM(disc)/SUM(gross),2) AS discount_pct_of_gross\nFROM o JOIN dim_channel c ON c.channel_key = o.channel_key\nGROUP BY c.channel_name;",
+  "note": "Online CSV orders contain exactly one product line each, which limits basket analysis for that channel.",
+  "cols": [
+   "channel_name",
+   "orders",
+   "avg_order_value",
+   "largest_order",
+   "lines_per_order",
+   "units_per_order",
+   "discount_pct_of_gross"
+  ],
+  "rows": [
+   [
+    "In-store (POS)",
+    6764,
+    2695.0,
+    16345.0,
+    2.41,
+    4.34,
+    0.47
+   ],
+   [
+    "Online order",
+    483,
+    2799.0,
+    44496.0,
+    1.0,
+    2.18,
+    4.3
+   ]
+  ]
+ },
+ {
+  "n": 13,
+  "title": "Market-basket analysis: product pairs bought together (support, confidence, lift)",
+  "question": "Which products should be placed together or cross-promoted?",
+  "tech": "Self-join on order, pair counting, lift = P(A&B) / (P(A) x P(B))",
+  "sql": "WITH items AS (\n  SELECT DISTINCT f.source_order_no AS ord, p.product_id AS pid, p.product_name AS nm\n  FROM fact_sales f JOIN dim_product p ON p.product_key = f.product_key\n  WHERE f.channel_key = 1),\nn   AS (SELECT COUNT(DISTINCT ord) AS total FROM items),\npc  AS (SELECT pid, COUNT(*) AS cnt FROM items GROUP BY pid),\npairs AS (\n  SELECT a.pid AS pa, b.pid AS pb, a.nm AS na, b.nm AS nb, COUNT(*) AS together\n  FROM items a JOIN items b ON a.ord = b.ord AND a.pid < b.pid\n  GROUP BY a.pid, b.pid, a.nm, b.nm)\nSELECT na AS product_a, nb AS product_b, together AS orders_together,\n       ROUND(100*together/total,2) AS support_pct,\n       ROUND(100*together/ca.cnt,1) AS confidence_a_to_b_pct,\n       ROUND((together/total) / ((ca.cnt/total)*(cb.cnt/total)),2) AS lift\nFROM pairs JOIN pc ca ON ca.pid = pairs.pa JOIN pc cb ON cb.pid = pairs.pb CROSS JOIN n\nWHERE together >= 30\nORDER BY lift DESC\nLIMIT 10;",
+  "note": "Lift > 1 means the pair is bought together more often than chance.",
+  "cols": [
+   "product_a",
+   "product_b",
+   "orders_together",
+   "support_pct",
+   "confidence_a_to_b_pct",
+   "lift"
+  ],
+  "rows": [
+   [
+    "Curry Powder 250g",
+    "Chilli Powder 250g",
+    326,
+    4.82,
+    41.3,
+    5.7
+   ],
+   [
+    "Black Tea 400g",
+    "Instant Coffee 100g",
+    230,
+    3.4,
+    37.7,
+    5.05
+   ],
+   [
+    "Tomatoes 1kg",
+    "Carrots 1kg",
+    52,
+    0.77,
+    32.3,
+    4.89
+   ],
+   [
+    "Samba Rice 5kg",
+    "Red Dhal 1kg",
+    127,
+    1.88,
+    44.9,
+    4.72
+   ],
+   [
+    "Butter 200g",
+    "Cheese Slices 200g",
+    286,
+    4.23,
+    37.6,
+    4.63
+   ],
+   [
+    "Fresh Milk 1L",
+    "Eggs (10 pack)",
+    262,
+    3.87,
+    40.5,
+    4.25
+   ],
+   [
+    "Ginger Beer 1.5L",
+    "Orange Cordial 750ml",
+    227,
+    3.36,
+    45.3,
+    4.17
+   ],
+   [
+    "Dish Wash Liquid 500ml",
+    "Laundry Detergent 1kg",
+    217,
+    3.21,
+    38.1,
+    3.96
+   ],
+   [
+    "Shampoo 200ml",
+    "Soap Bar 100g x3",
+    323,
+    4.78,
+    37.9,
+    3.87
+   ],
+   [
+    "Toothpaste 120g",
+    "Hand Wash 250ml",
+    397,
+    5.87,
+    51.3,
+    1.77
+   ]
+  ]
+ },
+ {
+  "n": 14,
+  "title": "Discount depth versus volume and margin",
+  "question": "Do deeper discounts actually lift units per line, and what do they cost in margin?",
+  "tech": "Derived table, banding, margin ratios",
+  "sql": "SELECT CONCAT(discount_depth, '%') AS discount_depth, COUNT(*) AS line_cnt,\n       ROUND(AVG(quantity),2) AS avg_units_per_line, ROUND(SUM(net_amount)) AS revenue,\n       ROUND(100*SUM(gross_profit)/SUM(net_amount),1) AS margin_pct\nFROM (SELECT f.*, ROUND(100*discount_amount/gross_amount) AS discount_depth\n      FROM fact_sales f WHERE f.channel_key = 1) x\nGROUP BY discount_depth\nORDER BY discount_depth;",
+  "note": "Dummy demand is not price-elastic, so units per line stay flat while margin falls; run on real data to test the question.",
+  "cols": [
+   "discount_depth",
+   "line_cnt",
+   "avg_units_per_line",
+   "revenue",
+   "margin_pct"
+  ],
+  "rows": [
+   [
+    "0%",
+    15150,
+    1.8,
+    17020435.0,
+    28.9
+   ],
+   [
+    "10%",
+    189,
+    1.82,
+    225086.0,
+    25.7
+   ],
+   [
+    "12%",
+    91,
+    1.82,
+    79534.0,
+    20.1
+   ],
+   [
+    "15%",
+    9,
+    1.78,
+    9996.0,
+    21.7
+   ],
+   [
+    "5%",
+    841,
+    1.76,
+    875359.0,
+    25.2
+   ],
+   [
+    "8%",
+    15,
+    2.33,
+    19191.0,
+    16.3
+   ]
+  ]
+ },
+ {
+  "n": 15,
+  "title": "Promotion effectiveness: profit earned per rupee of discount given",
+  "question": "Which promotions paid for themselves?",
+  "tech": "Join to promotion dimension, RANK(), ratio measures",
+  "sql": "SELECT pr.promo_name, pr.target_type, pr.discount_percent AS disc_pct,\n       COUNT(DISTINCT f.source_order_no) AS orders, SUM(f.quantity) AS units,\n       ROUND(SUM(f.discount_amount)) AS discount_cost, ROUND(SUM(f.gross_profit)) AS profit_after_discount,\n       ROUND(SUM(f.gross_profit)/SUM(f.discount_amount),2) AS profit_per_rs_discount,\n       RANK() OVER (ORDER BY SUM(f.gross_profit)/SUM(f.discount_amount) DESC) AS roi_rank\nFROM fact_sales f JOIN dim_promotion pr ON pr.promotion_key = f.promotion_key\nWHERE f.promotion_key > 0\nGROUP BY pr.promo_name, pr.target_type, pr.discount_percent\nORDER BY roi_rank\nLIMIT 10;",
+  "note": "Top 10 of the 16 promotions. Only discounted lines carry a promotion key.",
+  "cols": [
+   "promo_name",
+   "target_type",
+   "disc_pct",
+   "orders",
+   "units",
+   "discount_cost",
+   "profit_after_discount",
+   "profit_per_rs_discount",
+   "roi_rank"
+  ],
+  "rows": [
+   [
+    "Christmas Storewide 2024",
+    "STOREWIDE",
+    5.0,
+    83,
+    346.0,
+    10862.0,
+    55400.0,
+    5.1,
+    1
+   ],
+   [
+    "Christmas Storewide 2025",
+    "STOREWIDE",
+    5.0,
+    76,
+    302.0,
+    9731.0,
+    48440.0,
+    4.98,
+    2
+   ],
+   [
+    "Christmas Storewide 2023",
+    "STOREWIDE",
+    5.0,
+    104,
+    462.0,
+    14615.0,
+    68930.0,
+    4.72,
+    3
+   ],
+   [
+    "Christmas Storewide 2022",
+    "STOREWIDE",
+    5.0,
+    91,
+    370.0,
+    10864.0,
+    47715.0,
+    4.39,
+    4
+   ],
+   [
+    "Coconut Oil Deal 2023",
+    "PRODUCT",
+    10.0,
+    15,
+    20.0,
+    1910.0,
+    5399.0,
+    2.83,
+    5
+   ],
+   [
+    "Avurudu Rice Festival 2026",
+    "CATEGORY",
+    10.0,
+    26,
+    62.0,
+    5330.0,
+    13630.0,
+    2.56,
+    6
+   ],
+   [
+    "Avurudu Rice Festival 2024",
+    "CATEGORY",
+    10.0,
+    21,
+    38.0,
+    3498.0,
+    8409.0,
+    2.4,
+    7
+   ],
+   [
+    "Household Saver 2025",
+    "CATEGORY",
+    10.0,
+    29,
+    62.0,
+    3980.0,
+    8974.0,
+    2.25,
+    8
+   ],
+   [
+    "Avurudu Rice Festival 2025",
+    "CATEGORY",
+    10.0,
+    33,
+    83.0,
+    5855.0,
+    13141.0,
+    2.24,
+    9
+   ],
+   [
+    "Avurudu Rice Festival 2023",
+    "CATEGORY",
+    10.0,
+    10,
+    20.0,
+    1270.0,
+    2778.0,
+    2.19,
+    10
+   ]
+  ]
+ },
+ {
+  "n": 16,
+  "title": "Price-change impact on demand (SCD Type 2 versions)",
+  "question": "When a product's price rose, how did daily unit demand change?",
+  "tech": "SCD-2 effective dates, LAG() across versions, simple elasticity",
+  "sql": "WITH v AS (\n  SELECT p.product_key, p.product_id, p.product_name, p.version_no, p.list_price,\n         GREATEST(p.effective_from, '2022-01-01') AS from_d, LEAST(p.effective_to, '2026-10-28') AS to_d,\n         SUM(f.quantity) AS units\n  FROM dim_product p JOIN fact_sales f ON f.product_key = p.product_key AND f.channel_key = 1\n  WHERE p.product_id IN (SELECT product_id FROM dim_product GROUP BY product_id HAVING COUNT(*) > 1)\n  GROUP BY p.product_key, p.product_id, p.product_name, p.version_no, p.list_price, p.effective_from, p.effective_to),\nd AS (SELECT *, units / (DATEDIFF(to_d, from_d) + 1) AS units_per_day FROM v)\nSELECT product_name, version_no, list_price, from_d AS price_from, ROUND(units_per_day*30,1) AS units_per_30d,\n       ROUND(100*(list_price / LAG(list_price) OVER w - 1),1) AS price_change_pct,\n       ROUND(100*(units_per_day / LAG(units_per_day) OVER w - 1),1) AS demand_change_pct\nFROM d\nWINDOW w AS (PARTITION BY product_id ORDER BY version_no)\nORDER BY product_name, version_no\nLIMIT 14;",
+  "note": "First 14 rows shown. version_no 1 has no predecessor (NULL change). Demand also grows with the business, so this is a template for elasticity analysis, not proof of it.",
+  "cols": [
+   "product_name",
+   "version_no",
+   "list_price",
+   "price_from",
+   "units_per_30d",
+   "price_change_pct",
+   "demand_change_pct"
+  ],
+  "rows": [
+   [
+    "Black Tea 400g",
+    1,
+    655.0,
+    "2022-01-01",
+    13.2,
+    null,
+    null
+   ],
+   [
+    "Black Tea 400g",
+    2,
+    735.0,
+    "2022-11-01",
+    18.3,
+    12.2,
+    38.3
+   ],
+   [
+    "Black Tea 400g",
+    3,
+    780.0,
+    "2025-06-01",
+    22.5,
+    6.1,
+    22.9
+   ],
+   [
+    "Butter 200g",
+    1,
+    830.0,
+    "2022-01-01",
+    21.8,
+    null,
+    null
+   ],
+   [
+    "Butter 200g",
+    2,
+    890.0,
+    "2023-08-15",
+    23.6,
+    7.2,
+    8.1
+   ],
+   [
+    "Coconut Oil 1L",
+    1,
+    830.0,
+    "2022-01-01",
+    18.8,
+    null,
+    null
+   ],
+   [
+    "Coconut Oil 1L",
+    2,
+    955.0,
+    "2022-09-05",
+    21.4,
+    15.1,
+    13.7
+   ],
+   [
+    "Coconut Oil 1L",
+    3,
+    1050.0,
+    "2024-05-01",
+    20.2,
+    9.9,
+    -5.9
+   ],
+   [
+    "Dish Wash Liquid 500ml",
+    1,
+    360.0,
+    "2022-01-01",
+    17.4,
+    null,
+    null
+   ],
+   [
+    "Dish Wash Liquid 500ml",
+    2,
+    390.0,
+    "2023-01-15",
+    16.9,
+    8.3,
+    -2.8
+   ],
+   [
+    "Fresh Milk 1L",
+    1,
+    415.0,
+    "2022-01-01",
+    18.8,
+    null,
+    null
+   ],
+   [
+    "Fresh Milk 1L",
+    2,
+    450.0,
+    "2024-02-01",
+    21.2,
+    8.4,
+    12.6
+   ],
+   [
+    "Instant Coffee 100g",
+    1,
+    1135.0,
+    "2022-01-01",
+    14.1,
+    null,
+    null
+   ],
+   [
+    "Instant Coffee 100g",
+    2,
+    1250.0,
+    "2024-10-01",
+    16.3,
+    10.1,
+    15.9
+   ]
+  ]
+ },
+ {
+  "n": 17,
+  "title": "Return rate and refund cost by category",
+  "question": "Which categories generate the most returns?",
+  "tech": "Aggregate ratios, RANK() on a ratio",
+  "sql": "SELECT p.parent_category, p.category_name, SUM(f.quantity) AS units_sold, SUM(f.returned_qty) AS units_returned,\n       ROUND(100*SUM(f.returned_qty)/SUM(f.quantity),2) AS return_rate_pct,\n       ROUND(SUM(f.refund_amount)) AS refund_value,\n       ROUND(100*SUM(f.refund_amount)/SUM(f.net_amount),2) AS refund_pct_of_revenue,\n       RANK() OVER (ORDER BY SUM(f.returned_qty)/SUM(f.quantity) DESC) AS return_rank\nFROM fact_sales f JOIN dim_product p ON p.product_key = f.product_key\nWHERE f.channel_key = 1\nGROUP BY p.parent_category, p.category_name\nORDER BY return_rank;",
+  "note": "Returns are only recorded for in-store sales in the source system.",
+  "cols": [
+   "parent_category",
+   "category_name",
+   "units_sold",
+   "units_returned",
+   "return_rate_pct",
+   "refund_value",
+   "refund_pct_of_revenue",
+   "return_rank"
+  ],
+  "rows": [
+   [
+    "Household",
+    "Cleaning",
+    2688.0,
+    33.0,
+    1.23,
+    19080.0,
+    1.24,
+    1
+   ],
+   [
+    "Fresh Produce",
+    "Fruits & Vegetables",
+    1923.0,
+    21.0,
+    1.09,
+    9450.0,
+    1.14,
+    2
+   ],
+   [
+    "Groceries",
+    "Rice & Grains",
+    3646.0,
+    38.0,
+    1.04,
+    26371.0,
+    1.0,
+    3
+   ],
+   [
+    "Dairy & Eggs",
+    "Milk & Yogurt",
+    5144.0,
+    47.0,
+    0.91,
+    36123.0,
+    0.95,
+    4
+   ],
+   [
+    "Personal Care",
+    "Hair, Skin & Oral",
+    7662.0,
+    66.0,
+    0.86,
+    38593.0,
+    1.01,
+    5
+   ],
+   [
+    "Beverages",
+    "Tea & Coffee",
+    2382.0,
+    20.0,
+    0.84,
+    14975.0,
+    0.71,
+    6
+   ],
+   [
+    "Groceries",
+    "Spices & Oils",
+    3519.0,
+    20.0,
+    0.57,
+    11925.0,
+    0.51,
+    7
+   ],
+   [
+    "Beverages",
+    "Soft Drinks & Water",
+    2413.0,
+    13.0,
+    0.54,
+    5900.0,
+    0.5,
+    8
+   ]
+  ]
+ },
+ {
+  "n": 18,
+  "title": "Branches below the chain-average margin, by quarter",
+  "question": "Which branches consistently earn a lower margin than the chain?",
+  "tech": "Window aggregate over partition, flag counting",
+  "sql": "WITH q AS (\n  SELECT d.year_no, d.quarter_no, b.branch_name, SUM(f.net_amount) AS rev, SUM(f.gross_profit) AS gp\n  FROM fact_sales f\n  JOIN dim_date d    ON d.date_key    = f.date_key\n  JOIN dim_branch b  ON b.branch_key  = f.branch_key\n  WHERE f.channel_key = 1\n  GROUP BY d.year_no, d.quarter_no, b.branch_name),\nm AS (\n  SELECT *, 100*gp/rev AS margin,\n         100*SUM(gp) OVER (PARTITION BY year_no, quarter_no) / SUM(rev) OVER (PARTITION BY year_no, quarter_no) AS chain_margin\n  FROM q)\nSELECT branch_name, COUNT(*) AS quarters_traded,\n       SUM(margin < chain_margin) AS quarters_below_chain,\n       ROUND(100*SUM(margin < chain_margin)/COUNT(*)) AS pct_quarters_below,\n       ROUND(AVG(margin - chain_margin),2) AS avg_gap_pts\nFROM m\nGROUP BY branch_name\nORDER BY avg_gap_pts;",
+  "note": "Negative avg_gap_pts = margin lower than the chain in the same quarter.",
+  "cols": [
+   "branch_name",
+   "quarters_traded",
+   "quarters_below_chain",
+   "pct_quarters_below",
+   "avg_gap_pts"
+  ],
+  "rows": [
+   [
+    "FreshMart Galle",
+    20,
+    12.0,
+    60.0,
+    -0.12
+   ],
+   [
+    "FreshMart Kotte",
+    20,
+    11.0,
+    55.0,
+    -0.1
+   ],
+   [
+    "FreshMart Kandy",
+    20,
+    10.0,
+    50.0,
+    -0.08
+   ],
+   [
+    "FreshMart Nugegoda",
+    20,
+    12.0,
+    60.0,
+    -0.02
+   ],
+   [
+    "FreshMart Negombo",
+    20,
+    11.0,
+    55.0,
+    0.01
+   ],
+   [
+    "FreshMart Colombo Fort",
+    20,
+    7.0,
+    35.0,
+    0.04
+   ],
+   [
+    "FreshMart Jaffna",
+    16,
+    7.0,
+    44.0,
+    0.27
+   ],
+   [
+    "FreshMart Kurunegala",
+    11,
+    5.0,
+    45.0,
+    0.29
+   ]
+  ]
+ },
+ {
+  "n": 19,
+  "title": "Day-of-week revenue index by channel",
+  "question": "Which days of the week are strongest for each channel?",
+  "tech": "CROSS JOIN calendar x channel (to keep zero days), index vs average",
+  "sql": "WITH daily AS (\n  SELECT d.day_of_week, d.day_name, c.channel_name, d.full_date, COALESCE(SUM(f.net_amount),0) AS rev\n  FROM dim_date d CROSS JOIN dim_channel c\n  LEFT JOIN fact_sales f ON f.date_key = d.date_key AND f.channel_key = c.channel_key\n  WHERE d.full_date BETWEEN '2022-01-01' AND '2026-10-28'\n  GROUP BY d.day_of_week, d.day_name, c.channel_name, d.full_date),\navg_dow AS (SELECT channel_name, day_of_week, day_name, AVG(rev) AS avg_rev FROM daily GROUP BY channel_name, day_of_week, day_name)\nSELECT channel_name, day_name, ROUND(avg_rev) AS avg_daily_revenue,\n       ROUND(100*avg_rev / AVG(avg_rev) OVER (PARTITION BY channel_name)) AS index_vs_weekly_avg\nFROM avg_dow\nORDER BY channel_name, day_of_week;",
+  "note": "100 = average day for that channel.",
+  "cols": [
+   "channel_name",
+   "day_name",
+   "avg_daily_revenue",
+   "index_vs_weekly_avg"
+  ],
+  "rows": [
+   [
+    "In-store (POS)",
+    "Monday",
+    9215.0,
+    89.0
+   ],
+   [
+    "In-store (POS)",
+    "Tuesday",
+    9476.0,
+    92.0
+   ],
+   [
+    "In-store (POS)",
+    "Wednesday",
+    9105.0,
+    88.0
+   ],
+   [
+    "In-store (POS)",
+    "Thursday",
+    9316.0,
+    90.0
+   ],
+   [
+    "In-store (POS)",
+    "Friday",
+    9814.0,
+    95.0
+   ],
+   [
+    "In-store (POS)",
+    "Saturday",
+    13012.0,
+    126.0
+   ],
+   [
+    "In-store (POS)",
+    "Sunday",
+    12478.0,
+    121.0
+   ],
+   [
+    "Online order",
+    "Monday",
+    685.0,
+    89.0
+   ],
+   [
+    "Online order",
+    "Tuesday",
+    684.0,
+    89.0
+   ],
+   [
+    "Online order",
+    "Wednesday",
+    982.0,
+    128.0
+   ],
+   [
+    "Online order",
+    "Thursday",
+    692.0,
+    90.0
+   ],
+   [
+    "Online order",
+    "Friday",
+    615.0,
+    80.0
+   ],
+   [
+    "Online order",
+    "Saturday",
+    760.0,
+    99.0
+   ],
+   [
+    "Online order",
+    "Sunday",
+    953.0,
+    124.0
+   ]
+  ]
+ },
+ {
+  "n": 20,
+  "title": "Supplier scorecard",
+  "question": "Which suppliers deliver on time and with the fewest damaged or short shipments?",
+  "tech": "Fact #2 aggregation, composite score, RANK()",
+  "sql": "SELECT s.supplier_name, COUNT(DISTINCT f.po_number) AS purchase_orders, ROUND(SUM(f.ordered_amount)) AS spend,\n       ROUND(100*SUM(f.on_time_flag)/COUNT(*),1) AS on_time_pct, ROUND(AVG(f.lead_time_days),1) AS avg_lead_days,\n       ROUND(100*SUM(f.damaged_qty)/SUM(f.ordered_qty),2) AS damaged_pct,\n       ROUND(100*SUM(f.shortage_qty)/SUM(f.ordered_qty),2) AS shortage_pct,\n       RANK() OVER (ORDER BY 100*SUM(f.on_time_flag)/COUNT(*) - 2*(100*SUM(f.damaged_qty + f.shortage_qty)/SUM(f.ordered_qty)) DESC) AS score_rank\nFROM fact_procurement f JOIN dim_supplier s ON s.supplier_key = f.supplier_key\nGROUP BY s.supplier_name\nORDER BY score_rank;",
+  "note": "Score = on-time % minus 2 x (damaged % + shortage %) - weights are illustrative.",
+  "cols": [
+   "supplier_name",
+   "purchase_orders",
+   "spend",
+   "on_time_pct",
+   "avg_lead_days",
+   "damaged_pct",
+   "shortage_pct",
+   "score_rank"
+  ],
+  "rows": [
+   [
+    "Island Beverages",
+    185,
+    3317071.0,
+    53.1,
+    5.5,
+    0.55,
+    0.43,
+    1
+   ],
+   [
+    "HomeCare Distributors",
+    209,
+    3653236.0,
+    53.9,
+    5.4,
+    0.91,
+    0.78,
+    2
+   ],
+   [
+    "Ceylon Harvest Foods",
+    200,
+    4114730.0,
+    53.0,
+    5.6,
+    1.54,
+    0.9,
+    3
+   ],
+   [
+    "Lanka Dairy Co",
+    197,
+    4966225.0,
+    33.9,
+    6.1,
+    2.47,
+    1.52,
+    4
+   ],
+   [
+    "Green Valley Produce",
+    207,
+    2551108.0,
+    22.9,
+    6.2,
+    3.3,
+    2.66,
+    5
+   ]
+  ]
+ },
+ {
+  "n": 21,
+  "title": "Procurement loss root-cause by supplier",
+  "question": "Where is money lost in goods receiving, and which supplier causes it?",
+  "tech": "Conditional-aggregation pivot, % of total with window over an aggregate",
+  "sql": "SELECT f.discrepancy_reason,\n       ROUND(SUM(CASE WHEN s.supplier_code='SUP01' THEN f.lost_amount END)) AS sup01_ceylon_harvest,\n       ROUND(SUM(CASE WHEN s.supplier_code='SUP02' THEN f.lost_amount END)) AS sup02_lanka_dairy,\n       ROUND(SUM(CASE WHEN s.supplier_code='SUP03' THEN f.lost_amount END)) AS sup03_island_bev,\n       ROUND(SUM(CASE WHEN s.supplier_code='SUP04' THEN f.lost_amount END)) AS sup04_green_valley,\n       ROUND(SUM(CASE WHEN s.supplier_code='SUP05' THEN f.lost_amount END)) AS sup05_homecare,\n       ROUND(SUM(f.lost_amount)) AS total_loss,\n       ROUND(100*SUM(f.lost_amount)/SUM(SUM(f.lost_amount)) OVER (),1) AS pct_of_all_losses\nFROM fact_procurement f JOIN dim_supplier s ON s.supplier_key = f.supplier_key\nWHERE f.discrepancy_reason <> 'NONE'\nGROUP BY f.discrepancy_reason\nORDER BY total_loss DESC;",
+  "note": "",
+  "cols": [
+   "discrepancy_reason",
+   "sup01_ceylon_harvest",
+   "sup02_lanka_dairy",
+   "sup03_island_bev",
+   "sup04_green_valley",
+   "sup05_homecare",
+   "total_loss",
+   "pct_of_all_losses"
+  ],
+  "rows": [
+   [
+    "SUPPLIER_SHORTAGE",
+    38122.0,
+    58348.0,
+    16550.0,
+    51596.0,
+    29880.0,
+    194496.0,
+    35.5
+   ],
+   [
+    "EXPIRED_ON_ARRIVAL",
+    14656.0,
+    29287.0,
+    6173.0,
+    23006.0,
+    7039.0,
+    80161.0,
+    14.6
+   ],
+   [
+    "PACKAGING_BROKEN",
+    15679.0,
+    24258.0,
+    3744.0,
+    22035.0,
+    10492.0,
+    76208.0,
+    13.9
+   ],
+   [
+    "WRONG_PRODUCT",
+    9245.0,
+    29546.0,
+    2829.0,
+    21805.0,
+    8177.0,
+    71601.0,
+    13.1
+   ],
+   [
+    "DAMAGED_IN_TRANSIT",
+    13437.0,
+    19953.0,
+    4242.0,
+    22688.0,
+    3615.0,
+    63935.0,
+    11.7
+   ],
+   [
+    "QUALITY_DEFECT",
+    13610.0,
+    22824.0,
+    3526.0,
+    15044.0,
+    6262.0,
+    61266.0,
+    11.2
+   ]
+  ]
+ },
+ {
+  "n": 22,
+  "title": "Drill-across: units bought versus units sold by category (2025)",
+  "question": "Are we over- or under-buying relative to what customers purchase?",
+  "tech": "Drill-across of the two fact tables on conformed dimensions (date, product)",
+  "sql": "WITH s AS (\n  SELECT d.year_no, p.parent_category, SUM(f.quantity) AS units_sold, SUM(f.cost_amount) AS cogs\n  FROM fact_sales f\n  JOIN dim_date d    ON d.date_key    = f.date_key\n  JOIN dim_product p ON p.product_key = f.product_key\n  GROUP BY d.year_no, p.parent_category),\nb AS (\n  SELECT d.year_no, p.parent_category, SUM(f.received_qty) AS units_received, SUM(f.received_amount) AS purchase_cost\n  FROM fact_procurement f\n  JOIN dim_date d    ON d.date_key    = f.received_date_key\n  JOIN dim_product p ON p.product_key = f.product_key\n  GROUP BY d.year_no, p.parent_category)\nSELECT s.parent_category, b.units_received, s.units_sold,\n       ROUND(100*s.units_sold/b.units_received,1) AS sell_through_pct,\n       ROUND(b.purchase_cost) AS purchase_cost, ROUND(s.cogs) AS cost_of_goods_sold,\n       ROUND(b.purchase_cost/s.cogs,2) AS buy_to_cogs_ratio\nFROM s JOIN b ON b.year_no = s.year_no AND b.parent_category = s.parent_category\nWHERE s.year_no = 2025\nORDER BY sell_through_pct;",
+  "note": "Each fact is aggregated separately to the shared grain, then joined - never join the two facts directly.",
+  "cols": [
+   "parent_category",
+   "units_received",
+   "units_sold",
+   "sell_through_pct",
+   "purchase_cost",
+   "cost_of_goods_sold",
+   "buy_to_cogs_ratio"
+  ],
+  "rows": [
+   [
+    "Fresh Produce",
+    1219.0,
+    471.0,
+    38.6,
+    469238.0,
+    154480.0,
+    3.04
+   ],
+   [
+    "Dairy & Eggs",
+    1981.0,
+    1082.0,
+    54.6,
+    1176602.0,
+    582099.0,
+    2.02
+   ],
+   [
+    "Household",
+    916.0,
+    567.0,
+    61.9,
+    410803.0,
+    232548.0,
+    1.77
+   ],
+   [
+    "Beverages",
+    1404.0,
+    1098.0,
+    78.2,
+    655064.0,
+    541053.0,
+    1.21
+   ],
+   [
+    "Groceries",
+    1528.0,
+    1643.0,
+    107.5,
+    818271.0,
+    756923.0,
+    1.08
+   ],
+   [
+    "Personal Care",
+    1289.0,
+    1643.0,
+    127.5,
+    549946.0,
+    602840.0,
+    0.91
+   ]
+  ]
+ },
+ {
+  "n": 23,
+  "title": "Cost inflation versus selling-price change (2025 vs 2024) - margin squeeze detector",
+  "question": "Where did supplier cost rise faster than our shelf price?",
+  "tech": "Drill-across, pivot of two years, CASE flag",
+  "sql": "WITH c AS (\n  SELECT p.product_id, p.product_name,\n         AVG(CASE WHEN d.year_no = 2024 THEN f.unit_cost END) AS c24,\n         AVG(CASE WHEN d.year_no = 2025 THEN f.unit_cost END) AS c25\n  FROM fact_procurement f\n  JOIN dim_product p ON p.product_key = f.product_key\n  JOIN dim_date d    ON d.date_key    = f.order_date_key\n  WHERE d.year_no IN (2024, 2025) GROUP BY p.product_id, p.product_name),\ns AS (\n  SELECT p.product_id,\n         SUM(CASE WHEN d.year_no = 2024 THEN f.gross_amount END) / SUM(CASE WHEN d.year_no = 2024 THEN f.quantity END) AS s24,\n         SUM(CASE WHEN d.year_no = 2025 THEN f.gross_amount END) / SUM(CASE WHEN d.year_no = 2025 THEN f.quantity END) AS s25\n  FROM fact_sales f\n  JOIN dim_product p ON p.product_key = f.product_key\n  JOIN dim_date d    ON d.date_key    = f.date_key\n  WHERE f.channel_key = 1 AND d.year_no IN (2024, 2025) GROUP BY p.product_id)\nSELECT c.product_name, ROUND(c24,2) AS cost_2024, ROUND(c25,2) AS cost_2025, ROUND(100*(c25/c24-1),1) AS cost_change_pct,\n       ROUND(s24,2) AS price_2024, ROUND(s25,2) AS price_2025, ROUND(100*(s25/s24-1),1) AS price_change_pct,\n       ROUND(100*(s25/s24-1) - 100*(c25/c24-1),1) AS price_minus_cost_pts,\n       CASE WHEN s25/s24 < c25/c24 THEN 'MARGIN SQUEEZE' ELSE 'ok' END AS flag\nFROM c JOIN s ON s.product_id = c.product_id\nORDER BY price_minus_cost_pts\nLIMIT 10;",
+  "note": "10 worst products shown (most negative price-minus-cost gap).",
+  "cols": [
+   "product_name",
+   "cost_2024",
+   "cost_2025",
+   "cost_change_pct",
+   "price_2024",
+   "price_2025",
+   "price_change_pct",
+   "price_minus_cost_pts",
+   "flag"
+  ],
+  "rows": [
+   [
+    "Mineral Water 1.5L",
+    98.86,
+    103.33,
+    4.5,
+    130.0,
+    130.0,
+    0.0,
+    -4.5,
+    "MARGIN SQUEEZE"
+   ],
+   [
+    "Mango 1kg",
+    538.73,
+    562.4,
+    4.4,
+    650.0,
+    650.0,
+    0.0,
+    -4.4,
+    "MARGIN SQUEEZE"
+   ],
+   [
+    "Red Raw Rice 5kg",
+    853.84,
+    890.6,
+    4.3,
+    1250.0,
+    1250.0,
+    0.0,
+    -4.3,
+    "MARGIN SQUEEZE"
+   ],
+   [
+    "Orange Cordial 750ml",
+    474.59,
+    494.87,
+    4.3,
+    620.0,
+    620.0,
+    0.0,
+    -4.3,
+    "MARGIN SQUEEZE"
+   ],
+   [
+    "Basmati Rice 1kg",
+    572.96,
+    597.06,
+    4.2,
+    690.0,
+    690.0,
+    0.0,
+    -4.2,
+    "MARGIN SQUEEZE"
+   ],
+   [
+    "Butter 200g",
+    676.45,
+    704.54,
+    4.2,
+    890.0,
+    890.0,
+    0.0,
+    -4.2,
+    "MARGIN SQUEEZE"
+   ],
+   [
+    "Carrots 1kg",
+    308.4,
+    320.91,
+    4.1,
+    380.0,
+    380.0,
+    0.0,
+    -4.1,
+    "MARGIN SQUEEZE"
+   ],
+   [
+    "Eggs (10 pack)",
+    520.1,
+    540.79,
+    4.0,
+    620.0,
+    620.0,
+    0.0,
+    -4.0,
+    "MARGIN SQUEEZE"
+   ],
+   [
+    "Toothpaste 120g",
+    357.63,
+    371.6,
+    3.9,
+    450.0,
+    450.0,
+    0.0,
+    -3.9,
+    "MARGIN SQUEEZE"
+   ],
+   [
+    "Bananas 1kg",
+    248.01,
+    257.32,
+    3.8,
+    320.0,
+    320.0,
+    0.0,
+    -3.8,
+    "MARGIN SQUEEZE"
+   ]
+  ]
+ },
+ {
+  "n": 24,
+  "title": "Customer lifetime value, share of revenue and purchase rhythm",
+  "question": "Who are the top 10 customers and how often do they come back?",
+  "tech": "LAG() on order dates, nested aggregation, share-of-total window",
+  "sql": "WITH o AS (\n  SELECT c.customer_id, c.card_no, f.source_order_no, MIN(d.full_date) AS order_date, SUM(f.net_amount) AS rev\n  FROM fact_sales f\n  JOIN dim_customer c ON c.customer_key = f.customer_key AND c.customer_id IS NOT NULL\n  JOIN dim_date d     ON d.date_key     = f.date_key\n  GROUP BY c.customer_id, c.card_no, f.source_order_no),\ng AS (\n  SELECT *, DATEDIFF(order_date, LAG(order_date) OVER (PARTITION BY customer_id ORDER BY order_date)) AS gap_days FROM o)\nSELECT card_no, COUNT(*) AS orders, ROUND(SUM(rev)) AS lifetime_value,\n       ROUND(100*SUM(rev)/SUM(SUM(rev)) OVER (),2) AS share_of_loyalty_revenue_pct,\n       MIN(order_date) AS first_order, MAX(order_date) AS last_order, ROUND(AVG(gap_days)) AS avg_days_between_orders\nFROM g\nGROUP BY customer_id, card_no\nORDER BY lifetime_value DESC\nLIMIT 10;",
+  "note": "",
+  "cols": [
+   "card_no",
+   "orders",
+   "lifetime_value",
+   "share_of_loyalty_revenue_pct",
+   "first_order",
+   "last_order",
+   "avg_days_between_orders"
+  ],
+  "rows": [
+   [
+    "C000129",
+    269,
+    705171.0,
+    6.21,
+    "2023-06-08",
+    "2026-10-15",
+    5.0
+   ],
+   [
+    "C000238",
+    160,
+    456450.0,
+    4.02,
+    "2022-05-17",
+    "2026-10-25",
+    10.0
+   ],
+   [
+    "C000120",
+    172,
+    417357.0,
+    3.68,
+    "2022-01-02",
+    "2026-10-21",
+    10.0
+   ],
+   [
+    "C000141",
+    125,
+    326643.0,
+    2.88,
+    "2022-01-08",
+    "2026-07-31",
+    13.0
+   ],
+   [
+    "C000227",
+    103,
+    265638.0,
+    2.34,
+    "2022-10-16",
+    "2026-09-01",
+    14.0
+   ],
+   [
+    "C000242",
+    96,
+    259214.0,
+    2.28,
+    "2022-01-22",
+    "2026-10-28",
+    18.0
+   ],
+   [
+    "C000166",
+    98,
+    246294.0,
+    2.17,
+    "2022-01-13",
+    "2026-08-14",
+    17.0
+   ],
+   [
+    "C000126",
+    85,
+    240584.0,
+    2.12,
+    "2022-01-04",
+    "2026-08-16",
+    20.0
+   ],
+   [
+    "C000103",
+    69,
+    221790.0,
+    1.95,
+    "2022-01-04",
+    "2026-09-30",
+    25.0
+   ],
+   [
+    "C000110",
+    77,
+    209942.0,
+    1.85,
+    "2022-03-11",
+    "2026-10-14",
+    22.0
+   ]
+  ]
+ },
+ {
+  "n": 25,
+  "title": "Unusual trading days: z-score anomaly detection",
+  "question": "Which days were statistically unusual, and were they holidays?",
+  "tech": "AVG/STDDEV_SAMP window per year, z-score filter",
+  "sql": "WITH daily AS (\n  SELECT d.full_date, d.year_no, d.day_name, d.holiday_name, COALESCE(SUM(f.net_amount),0) AS rev\n  FROM dim_date d LEFT JOIN fact_sales f ON f.date_key = d.date_key\n  WHERE d.full_date BETWEEN '2022-01-01' AND '2026-10-28'\n  GROUP BY d.full_date, d.year_no, d.day_name, d.holiday_name),\nz AS (\n  SELECT *, (rev - AVG(rev) OVER (PARTITION BY year_no)) / STDDEV_SAMP(rev) OVER (PARTITION BY year_no) AS zscore FROM daily)\nSELECT full_date, day_name, COALESCE(holiday_name,'-') AS holiday, ROUND(rev) AS revenue, ROUND(zscore,2) AS z_score,\n       CASE WHEN zscore > 0 THEN 'spike' ELSE 'dip' END AS direction\nFROM z\nWHERE ABS(zscore) >= 2.5\nORDER BY ABS(zscore) DESC\nLIMIT 12;",
+  "note": "|z| >= 2.5 within each calendar year.",
+  "cols": [
+   "full_date",
+   "day_name",
+   "holiday",
+   "revenue",
+   "z_score",
+   "direction"
+  ],
+  "rows": [
+   [
+    "2023-08-27",
+    "Sunday",
+    "-",
+    55426.0,
+    5.4,
+    "spike"
+   ],
+   [
+    "2022-12-10",
+    "Saturday",
+    "-",
+    43925.0,
+    4.89,
+    "spike"
+   ],
+   [
+    "2025-02-08",
+    "Saturday",
+    "-",
+    51040.0,
+    4.8,
+    "spike"
+   ],
+   [
+    "2024-02-10",
+    "Saturday",
+    "-",
+    47730.0,
+    4.63,
+    "spike"
+   ],
+   [
+    "2024-12-07",
+    "Saturday",
+    "-",
+    41620.0,
+    3.86,
+    "spike"
+   ],
+   [
+    "2025-02-03",
+    "Monday",
+    "-",
+    43272.0,
+    3.85,
+    "spike"
+   ],
+   [
+    "2022-10-26",
+    "Wednesday",
+    "-",
+    34910.0,
+    3.58,
+    "spike"
+   ],
+   [
+    "2026-04-05",
+    "Sunday",
+    "-",
+    38452.0,
+    3.57,
+    "spike"
+   ],
+   [
+    "2023-10-14",
+    "Saturday",
+    "-",
+    39990.0,
+    3.52,
+    "spike"
+   ],
+   [
+    "2025-03-23",
+    "Sunday",
+    "-",
+    39616.0,
+    3.4,
+    "spike"
+   ],
+   [
+    "2025-09-13",
+    "Saturday",
+    "-",
+    39532.0,
+    3.39,
+    "spike"
+   ],
+   [
+    "2026-08-25",
+    "Tuesday",
+    "-",
+    36252.0,
+    3.28,
+    "spike"
+   ]
+  ]
+ }
+]

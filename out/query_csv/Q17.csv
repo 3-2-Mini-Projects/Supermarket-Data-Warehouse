@@ -1,0 +1,9 @@
+﻿parent_category,category_name,units_sold,units_returned,return_rate_pct,refund_value,refund_pct_of_revenue,return_rank
+Household,Cleaning,2688.0,33.0,1.23,19080.0,1.24,1
+Fresh Produce,Fruits & Vegetables,1923.0,21.0,1.09,9450.0,1.14,2
+Groceries,Rice & Grains,3646.0,38.0,1.04,26371.0,1.0,3
+Dairy & Eggs,Milk & Yogurt,5144.0,47.0,0.91,36123.0,0.95,4
+Personal Care,"Hair, Skin & Oral",7662.0,66.0,0.86,38593.0,1.01,5
+Beverages,Tea & Coffee,2382.0,20.0,0.84,14975.0,0.71,6
+Groceries,Spices & Oils,3519.0,20.0,0.57,11925.0,0.51,7
+Beverages,Soft Drinks & Water,2413.0,13.0,0.54,5900.0,0.5,8

@@ -1,0 +1,6 @@
+﻿supplier_name,purchase_orders,spend,on_time_pct,avg_lead_days,damaged_pct,shortage_pct,score_rank
+Island Beverages,185,3317071.0,53.1,5.5,0.55,0.43,1
+HomeCare Distributors,209,3653236.0,53.9,5.4,0.91,0.78,2
+Ceylon Harvest Foods,200,4114730.0,53.0,5.6,1.54,0.9,3
+Lanka Dairy Co,197,4966225.0,33.9,6.1,2.47,1.52,4
+Green Valley Produce,207,2551108.0,22.9,6.2,3.3,2.66,5

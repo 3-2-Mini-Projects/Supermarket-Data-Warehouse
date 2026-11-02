@@ -1,0 +1,15 @@
+﻿product_name,version_no,list_price,price_from,units_per_30d,price_change_pct,demand_change_pct
+Black Tea 400g,1,655.0,2022-01-01,13.2,,
+Black Tea 400g,2,735.0,2022-11-01,18.3,12.2,38.3
+Black Tea 400g,3,780.0,2025-06-01,22.5,6.1,22.9
+Butter 200g,1,830.0,2022-01-01,21.8,,
+Butter 200g,2,890.0,2023-08-15,23.6,7.2,8.1
+Coconut Oil 1L,1,830.0,2022-01-01,18.8,,
+Coconut Oil 1L,2,955.0,2022-09-05,21.4,15.1,13.7
+Coconut Oil 1L,3,1050.0,2024-05-01,20.2,9.9,-5.9
+Dish Wash Liquid 500ml,1,360.0,2022-01-01,17.4,,
+Dish Wash Liquid 500ml,2,390.0,2023-01-15,16.9,8.3,-2.8
+Fresh Milk 1L,1,415.0,2022-01-01,18.8,,
+Fresh Milk 1L,2,450.0,2024-02-01,21.2,8.4,12.6
+Instant Coffee 100g,1,1135.0,2022-01-01,14.1,,
+Instant Coffee 100g,2,1250.0,2024-10-01,16.3,10.1,15.9
