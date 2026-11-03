@@ -1,0 +1,9 @@
+500 CSV rows staged
+Holiday source: LIVE Calendarific API
+256 holiday rows staged
+>> 03_etl_staging.sql
+>> load_online_orders.py
+>> extract_holidays.py
+>> 04_etl_dimensions.sql
+>> 05_etl_facts.sql
+ETL finished
